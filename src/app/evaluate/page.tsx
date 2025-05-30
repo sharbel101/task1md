@@ -5,6 +5,7 @@ import { useAuth } from "../AuthContext";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabaseClient";
 import { sendEmail } from '../sendEmail';
+import { RealtimePostgresChangesPayload } from '@supabase/supabase-js';
 
 interface Submission {
   id: string;
@@ -29,6 +30,24 @@ type RealtimePayload = {
   schema: string;
   table: string;
   commit_id: string;
+};
+
+type RealtimeEventType = 'postgres_changes';
+
+// Type assertion for the channel.on method
+type ChannelOnMethod = {
+  on: (
+    event: 'postgres_changes',
+    filter: {
+      event: string;
+      schema: string;
+      table: string;
+      filter?: string;
+    },
+    callback: (payload: RealtimePayload) => void
+  ) => {
+    subscribe: (callback?: (status: unknown) => void) => void;
+  };
 };
 
 export default function EvaluatePage() {
@@ -92,10 +111,10 @@ export default function EvaluatePage() {
     if (userRole !== "evaluator") return;
 
     console.log('Setting up real-time subscription');
-    const channel = supabase
-      .channel('submissions')
+    const channel = (supabase
+      .channel('submissions') as unknown as ChannelOnMethod)
       .on(
-        'postgres_changes' as any,
+        'postgres_changes',
         {
           event: '*',
           schema: 'public',
@@ -125,7 +144,7 @@ export default function EvaluatePage() {
 
     return () => {
       console.log('Cleaning up subscription');
-      supabase.removeChannel(channel);
+      supabase.removeChannel(channel as any);
     };
   }, [userRole]);
 

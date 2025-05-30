@@ -1,36 +1,127 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Developer Application Portal
 
-## Getting Started
+A Next.js application for managing developer applications and evaluations.
 
-First, run the development server:
+## Deployment on Vercel
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+### Prerequisites
+
+1. A Vercel account
+2. A Supabase project
+3. SMTP server credentials for email notifications
+
+### Environment Variables
+
+The following environment variables must be set in your Vercel project settings:
+
+#### Supabase Configuration
+```
+NEXT_PUBLIC_SUPABASE_URL=your-project-url
+NEXT_PUBLIC_SUPABASE_ANON_KEY=your-anon-key
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+#### Email Configuration (SMTP)
+```
+SMTP_HOST=smtp.example.com
+SMTP_PORT=587
+SMTP_USER=your-smtp-username
+SMTP_PASS=your-smtp-password
+SMTP_FROM=noreply@yourdomain.com
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+#### Storage Configuration
+```
+NEXT_PUBLIC_STORAGE_URL=your-storage-url
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+### Deployment Steps
 
-## Learn More
+1. Fork or clone this repository
+2. Connect your Vercel account to your GitHub repository
+3. In the Vercel dashboard:
+   - Set all required environment variables
+   - Configure build settings:
+     - Framework Preset: Next.js
+     - Build Command: `next build`
+     - Output Directory: `.next`
+4. Deploy the project
 
-To learn more about Next.js, take a look at the following resources:
+### Post-Deployment Setup
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+1. Configure Supabase Storage:
+   - Create two buckets: `profile-pictures` and `source-code`
+   - Set appropriate bucket policies
+   - Enable public access if needed
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+2. Configure Database:
+   - Ensure all required tables are created
+   - Set up appropriate RLS policies
+   - Configure realtime subscriptions if needed
 
-## Deploy on Vercel
+3. Test the Application:
+   - Verify email notifications
+   - Test file uploads
+   - Check realtime updates
+   - Verify authentication flow
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+### Troubleshooting
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+1. If file uploads fail:
+   - Check bucket permissions in Supabase
+   - Verify storage URL configuration
+   - Check file size limits
+
+2. If email notifications fail:
+   - Verify SMTP credentials
+   - Check email service provider limits
+   - Review server logs for errors
+
+3. If authentication fails:
+   - Verify Supabase configuration
+   - Check middleware settings
+   - Review session handling
+
+### Security Considerations
+
+1. All sensitive routes are protected by middleware
+2. File uploads are validated and compressed
+3. Environment variables are properly secured
+4. Database access is controlled by RLS policies
+
+### Performance Optimization
+
+1. Images are automatically compressed
+2. Static assets are cached
+3. Real-time updates are optimized
+4. Database queries are indexed
+
+## Development
+
+### Local Setup
+
+1. Install dependencies:
+   ```bash
+   npm install
+   ```
+
+2. Set up environment variables:
+   ```bash
+   cp .env.example .env.local
+   ```
+
+3. Run the development server:
+   ```bash
+   npm run dev
+   ```
+
+### Available Scripts
+
+- `npm run dev` - Start development server
+- `npm run build` - Build for production
+- `npm run start` - Start production server
+- `npm run lint` - Run ESLint
+- `npm run type-check` - Run TypeScript type checking
+
+## License
+
+MIT

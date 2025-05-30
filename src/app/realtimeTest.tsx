@@ -1,30 +1,53 @@
 import React, { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient' // relative path is correct
 
-interface RealtimePayload {
-  eventType: 'INSERT' | 'UPDATE' | 'DELETE'
-  new: Record<string, unknown>
-  old: Record<string, unknown>
+interface FeedbackMessage {
+  id: string;
+  message: string;
+  submission_id: string;
+  created_at: string;
 }
 
+interface RealtimePayload {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  new: FeedbackMessage;
+  old: FeedbackMessage;
+}
+
+// Type assertion for the channel.on method
+type ChannelOnMethod = {
+  on: (
+    event: 'postgres_changes',
+    filter: {
+      event: string;
+      schema: string;
+      table: string;
+      filter?: string;
+    },
+    callback: (payload: RealtimePayload) => void
+  ) => {
+    subscribe: (callback?: (status: unknown) => void) => void;
+  };
+};
+
 export default function RealtimeTest() {
-  const [messages, setMessages] = useState<any[]>([])
+  const [messages, setMessages] = useState<FeedbackMessage[]>([])
 
   useEffect(() => {
     // Initial fetch
     const fetchData = async () => {
       const { data, error } = await supabase.from('feedback').select('*')
       if (error) console.error(error)
-      if (data) setMessages(data)
+      if (data) setMessages(data as FeedbackMessage[])
     }
 
     fetchData()
 
     // Realtime subscription
-    const subscription = supabase
-      .channel('realtime-feedback')
+    const subscription = (supabase
+      .channel('realtime-feedback') as unknown as ChannelOnMethod)
       .on(
-        'postgres_changes' as any,
+        'postgres_changes',
         {
           event: '*',
           schema: 'public',
@@ -40,7 +63,7 @@ export default function RealtimeTest() {
       .subscribe()
 
     return () => {
-      supabase.removeChannel(subscription)
+      supabase.removeChannel(subscription as any)
     }
   }, [])
 
