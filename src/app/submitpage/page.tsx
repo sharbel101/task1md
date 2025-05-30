@@ -230,17 +230,24 @@ export default function SubmitPage() {
         setIsSubmitting(false);
       }, 2000);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Full error object:', error);
-      if (error.message) {
-        setSubmitStatus(`Error: ${error.message}`);
-      } else if (error.code === '23505') {
-        setSubmitStatus('This email has already been used for a submission.');
-      } else if (error.message?.includes('storage')) {
-        setSubmitStatus('Error uploading files. Please try again with smaller files.');
-      } else {
-        setSubmitStatus('Error submitting application. Please try again. If the problem persists, contact support.');
+      let errorMessage = 'Error submitting application. ';
+      
+      if (error instanceof Error) {
+        errorMessage += error.message;
+      } else if (typeof error === 'object' && error !== null && 'code' in error) {
+        const code = error.code as string;
+        if (code === '23505') {
+          errorMessage = 'This email has already been used for a submission.';
+        } else if (code === '42501') {
+          errorMessage = 'Permission denied. Please check your access rights.';
+        } else if (code === '42P01') {
+          errorMessage = 'Database table not found. Please contact support.';
+        }
       }
+      
+      setSubmitStatus(errorMessage);
       setIsSubmitting(false);
     }
   };

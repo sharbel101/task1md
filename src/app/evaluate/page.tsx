@@ -1,10 +1,9 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useCallback } from "react";
 import { useAuth } from "../AuthContext";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabaseClient";
-import { RealtimeChannel } from '@supabase/supabase-js';
 import { sendEmail } from '../sendEmail';
 
 interface Submission {
@@ -22,6 +21,16 @@ interface Submission {
   evaluated_at?: string;
 }
 
+type RealtimePayload = {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE';
+  new: Submission;
+  old: Submission;
+  commit_timestamp: string;
+  schema: string;
+  table: string;
+  commit_id: string;
+};
+
 export default function EvaluatePage() {
   const { userRole } = useAuth();
   const router = useRouter();
@@ -34,69 +43,7 @@ export default function EvaluatePage() {
   const [isUpdating, setIsUpdating] = useState(false);
   const [updateStatus, setUpdateStatus] = useState<string | null>(null);
 
-  // Simplified role check
-  useEffect(() => {
-    console.log('Current userRole:', userRole);
-    if (userRole === null) {
-      // Still loading, do nothing
-      return;
-    }
-    if (userRole !== "evaluator") {
-      console.log('Invalid role, redirecting to login');
-      router.push("/login");
-    } else {
-      // Role is valid, fetch submissions
-      fetchPendingSubmissions();
-    }
-  }, [userRole, router]);
-
-  // Simplified real-time subscription
-  useEffect(() => {
-    if (userRole !== "evaluator") return;
-
-    console.log('Setting up real-time subscription');
-    const channel = supabase
-      .channel('submissions')
-      .on(
-        'postgres_changes' as any,
-        {
-          event: '*',
-          schema: 'public',
-          table: 'submissions',
-          filter: 'status=eq.pending'
-        },
-        (payload: { 
-          eventType: 'INSERT' | 'UPDATE' | 'DELETE',
-          new: Submission,
-          old: Submission
-        }) => {
-          console.log('Realtime update received:', payload);
-          if (payload.eventType === 'UPDATE') {
-            setSubmissions(current => 
-              current.map(sub => 
-                sub.id === payload.new.id ? { ...sub, ...payload.new } as Submission : sub
-              )
-            );
-          } else if (payload.eventType === 'INSERT') {
-            setSubmissions(current => [...current, payload.new as Submission]);
-          } else if (payload.eventType === 'DELETE') {
-            setSubmissions(current => 
-              current.filter(sub => sub.id !== payload.old.id)
-            );
-          }
-        }
-      )
-      .subscribe((status) => {
-        console.log('Subscription status:', status);
-      });
-
-    return () => {
-      console.log('Cleaning up subscription');
-      supabase.removeChannel(channel);
-    };
-  }, [userRole]);
-
-  const fetchPendingSubmissions = async () => {
+  const fetchPendingSubmissions = useCallback(async () => {
     console.log('Fetching pending submissions...');
     setIsLoading(true);
     try {
@@ -122,7 +69,65 @@ export default function EvaluatePage() {
     } finally {
       setIsLoading(false);
     }
-  };
+  }, []);
+
+  // Simplified role check
+  useEffect(() => {
+    console.log('Current userRole:', userRole);
+    if (userRole === null) {
+      // Still loading, do nothing
+      return;
+    }
+    if (userRole !== "evaluator") {
+      console.log('Invalid role, redirecting to login');
+      router.push("/login");
+    } else {
+      // Role is valid, fetch submissions
+      fetchPendingSubmissions();
+    }
+  }, [userRole, router, fetchPendingSubmissions]);
+
+  // Simplified real-time subscription
+  useEffect(() => {
+    if (userRole !== "evaluator") return;
+
+    console.log('Setting up real-time subscription');
+    const channel = supabase
+      .channel('submissions')
+      .on(
+        'postgres_changes' as any,
+        {
+          event: '*',
+          schema: 'public',
+          table: 'submissions',
+          filter: 'status=eq.pending'
+        },
+        (payload: RealtimePayload) => {
+          console.log('Realtime update received:', payload);
+          if (payload.eventType === 'UPDATE') {
+            setSubmissions(current => 
+              current.map(sub => 
+                sub.id === payload.new.id ? { ...sub, ...payload.new } as Submission : sub
+              )
+            );
+          } else if (payload.eventType === 'INSERT') {
+            setSubmissions(current => [...current, payload.new as Submission]);
+          } else if (payload.eventType === 'DELETE') {
+            setSubmissions(current => 
+              current.filter(sub => sub.id !== payload.old.id)
+            );
+          }
+        }
+      )
+      .subscribe((status) => {
+        console.log('Subscription status:', status);
+      });
+
+    return () => {
+      console.log('Cleaning up subscription');
+      supabase.removeChannel(channel);
+    };
+  }, [userRole]);
 
   // Function to show temporary status messages
   const showStatus = (message: string, duration: number = 3000) => {
@@ -181,18 +186,21 @@ export default function EvaluatePage() {
       link.download = downloadFilename;
       link.click();
       URL.revokeObjectURL(downloadUrl);
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Error downloading file:', error);
       let errorMessage = 'Error downloading file. ';
       
-      if (error.message) {
+      if (error instanceof Error) {
         errorMessage += error.message;
-      } else if (error.code === '23505') {
-        errorMessage += 'File not found.';
-      } else if (error.code === '42501') {
-        errorMessage += 'Permission denied. Please check your access rights.';
-      } else if (error.code === '42P01') {
-        errorMessage += 'Storage bucket not found. Please contact support.';
+      } else if (typeof error === 'object' && error !== null && 'code' in error) {
+        const code = error.code as string;
+        if (code === '23505') {
+          errorMessage += 'File not found.';
+        } else if (code === '42501') {
+          errorMessage += 'Permission denied. Please check your access rights.';
+        } else if (code === '42P01') {
+          errorMessage += 'Storage bucket not found. Please contact support.';
+        }
       } else {
         errorMessage += 'Please try again. If the problem persists, contact support.';
       }
@@ -272,7 +280,7 @@ export default function EvaluatePage() {
         created_at: new Date().toISOString()
       };
 
-      const { data: insertedFeedback, error: feedbackError } = await supabase
+      const { error: feedbackError } = await supabase
         .from('feedback')
         .insert([feedbackData])
         .select()
@@ -336,7 +344,7 @@ export default function EvaluatePage() {
         }
       }, 2000);
 
-    } catch (error: any) {
+    } catch (error: unknown) {
       console.error('Full error details:', error);
       
       // Revert optimistic update
@@ -344,14 +352,17 @@ export default function EvaluatePage() {
       
       // Show appropriate error message
       let errorMessage = 'Error updating submission. ';
-      if (error.message) {
+      if (error instanceof Error) {
         errorMessage += error.message;
-      } else if (error.code === '23505') {
-        errorMessage += 'This submission has already been evaluated.';
-      } else if (error.code === '42501') {
-        errorMessage += 'Permission denied. Please check your access rights.';
-      } else if (error.code === '42P01') {
-        errorMessage += 'Database table not found. Please contact support.';
+      } else if (typeof error === 'object' && error !== null && 'code' in error) {
+        const code = error.code as string;
+        if (code === '23505') {
+          errorMessage += 'This submission has already been evaluated.';
+        } else if (code === '42501') {
+          errorMessage += 'Permission denied. Please check your access rights.';
+        } else if (code === '42P01') {
+          errorMessage += 'Database table not found. Please contact support.';
+        }
       } else {
         errorMessage += 'Please try again. If the problem persists, contact support.';
       }

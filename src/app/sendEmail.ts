@@ -1,24 +1,27 @@
 // sendEmail.ts
-export async function sendEmail(to: string, subject: string, htmlBody: string) {
+export async function sendEmail(to: string, subject: string, html: string) {
   try {
     const response = await fetch('/api/send-email', {
       method: 'POST',
       headers: {
         'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ to, subject, htmlBody }),
+      body: JSON.stringify({
+        to,
+        subject,
+        html,
+      }),
     });
 
     if (!response.ok) {
-      const error = await response.json();
-      throw new Error(error.error || 'Failed to send email');
+      const data = await response.json();
+      throw new Error(data.error || 'Failed to send email');
     }
 
-    const result = await response.json();
-    console.log("✅ Email sent!", result);
-    return result;
-  } catch (error: any) {
-    console.error("❌ Failed to send email:", error);
-    throw error;
+    return await response.json();
+  } catch (error: unknown) {
+    console.error('Error sending email:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to send email';
+    throw new Error(errorMessage);
   }
 }

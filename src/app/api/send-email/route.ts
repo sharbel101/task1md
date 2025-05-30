@@ -1,40 +1,33 @@
-import { Resend } from 'resend';
 import { NextResponse } from 'next/server';
-
-// Initialize Resend with your API key
-const resend = new Resend('re_3NAzFn5E_6vWA2JCqWkdU4a3cJwF1Dv1x'); // Replace with your actual Resend API key
+import nodemailer from 'nodemailer';
 
 export async function POST(request: Request) {
   try {
-    const { to, subject, htmlBody } = await request.json();
+    const { to, subject, html } = await request.json();
 
-    if (!to || !subject || !htmlBody) {
-      return NextResponse.json(
-        { error: 'Missing required fields' },
-        { status: 400 }
-      );
-    }
-
-    const { data, error } = await resend.emails.send({
-      from: 'onboarding@resend.dev', // This is a default sender that works for testing
-      to: to,
-      subject: subject,
-      html: htmlBody,
+    const transporter = nodemailer.createTransport({
+      host: process.env.SMTP_HOST,
+      port: Number(process.env.SMTP_PORT),
+      secure: true,
+      auth: {
+        user: process.env.SMTP_USER,
+        pass: process.env.SMTP_PASS,
+      },
     });
 
-    if (error) {
-      console.error('Failed to send email:', error);
-      return NextResponse.json(
-        { error: error.message || 'Failed to send email' },
-        { status: 500 }
-      );
-    }
+    await transporter.sendMail({
+      from: process.env.SMTP_FROM,
+      to,
+      subject,
+      html,
+    });
 
-    return NextResponse.json({ success: true, data });
-  } catch (error: any) {
-    console.error('Failed to send email:', error);
+    return NextResponse.json({ success: true });
+  } catch (error: unknown) {
+    console.error('Error sending email:', error);
+    const errorMessage = error instanceof Error ? error.message : 'Failed to send email';
     return NextResponse.json(
-      { error: error.message || 'Failed to send email' },
+      { error: errorMessage },
       { status: 500 }
     );
   }

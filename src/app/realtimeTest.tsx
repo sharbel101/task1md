@@ -1,5 +1,11 @@
-import { useEffect, useState } from 'react'
+import React, { useEffect, useState } from 'react'
 import { supabase } from './supabaseClient' // relative path is correct
+
+interface RealtimePayload {
+  eventType: 'INSERT' | 'UPDATE' | 'DELETE'
+  new: Record<string, unknown>
+  old: Record<string, unknown>
+}
 
 export default function RealtimeTest() {
   const [messages, setMessages] = useState<any[]>([])
@@ -18,13 +24,13 @@ export default function RealtimeTest() {
     const subscription = supabase
       .channel('realtime-feedback')
       .on(
-        'postgres_changes',
+        'postgres_changes' as any,
         {
           event: '*',
           schema: 'public',
           table: 'feedback',
         },
-        (payload) => {
+        (payload: RealtimePayload) => {
           console.log('Change received!', payload)
           if (payload.eventType === 'INSERT') {
             setMessages((prev) => [...prev, payload.new])
