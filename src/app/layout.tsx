@@ -1,13 +1,23 @@
 import "./globals.css";
 import AuthProvider from "./AuthContext";
 
-import { Geist, Geist_Mono } from "next/font/google";
-const geistSans = Geist({ variable: "--font-geist-sans", subsets: ["latin"] });
-const geistMono = Geist_Mono({ variable: "--font-geist-mono", subsets: ["latin"] });
+import { Inter, Roboto_Mono } from "next/font/google";
+
+const inter = Inter({ 
+  variable: "--font-inter",
+  subsets: ["latin"],
+  display: "swap",
+});
+
+const robotoMono = Roboto_Mono({
+  variable: "--font-roboto-mono",
+  subsets: ["latin"],
+  display: "swap",
+});
 
 export const metadata = {
-  title: "My Next App",
-  description: "Login / Submit / Evaluate flows",
+  title: "Developer Application Portal",
+  description: "A platform for managing developer applications and evaluations",
 };
 
 export default function RootLayout({
@@ -17,7 +27,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en">
-      <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
+      <body className={`${inter.variable} ${robotoMono.variable} font-sans antialiased`}>
         <AuthProvider>{children}</AuthProvider>
       </body>
     </html>
