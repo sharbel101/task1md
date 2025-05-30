@@ -142,22 +142,62 @@ export default function EvaluatePage() {
     if (!url) return;
     
     try {
-      const { data, error } = await supabase.storage
-        .from('source-code')
-        .download(url);
+      // For profile pictures, the URL is just the filename
+      const bucket = filename === 'profile_picture.jpg' ? 'profile-pictures' : 'source-code';
+      const path = url; // The URL is already the path for profile pictures
 
-      if (error) throw error;
+      console.log(`Attempting to download from bucket: ${bucket}, path: ${path}`);
+      
+      const { data, error } = await supabase.storage
+        .from(bucket)
+        .download(path);
+
+      if (error) {
+        console.error('Storage error details:', {
+          message: error.message,
+          name: error.name
+        });
+        throw error;
+      }
+
+      if (!data) {
+        throw new Error('No data received from storage');
+      }
+
+      // For profile pictures, try to determine the correct file extension
+      let downloadFilename = filename;
+      if (filename === 'profile_picture.jpg') {
+        // Try to get the original file extension from the path
+        const originalExt = path.split('.').pop()?.toLowerCase();
+        if (originalExt && ['jpg', 'jpeg', 'png', 'gif'].includes(originalExt)) {
+          downloadFilename = `profile_picture.${originalExt}`;
+        }
+      }
 
       const blob = new Blob([data]);
       const downloadUrl = URL.createObjectURL(blob);
       const link = document.createElement("a");
       link.href = downloadUrl;
-      link.download = filename;
+      link.download = downloadFilename;
       link.click();
       URL.revokeObjectURL(downloadUrl);
-    } catch (error) {
+    } catch (error: any) {
       console.error('Error downloading file:', error);
-      alert('Error downloading file');
+      let errorMessage = 'Error downloading file. ';
+      
+      if (error.message) {
+        errorMessage += error.message;
+      } else if (error.code === '23505') {
+        errorMessage += 'File not found.';
+      } else if (error.code === '42501') {
+        errorMessage += 'Permission denied. Please check your access rights.';
+      } else if (error.code === '42P01') {
+        errorMessage += 'Storage bucket not found. Please contact support.';
+      } else {
+        errorMessage += 'Please try again. If the problem persists, contact support.';
+      }
+      
+      alert(errorMessage);
     }
   };
 
@@ -459,9 +499,23 @@ export default function EvaluatePage() {
           </div>
           <div>
             <label className="block text-white font-medium">Profile Picture</label>
-            <p className="w-full px-4 py-3 rounded-lg border border-white/30 bg-white/10 text-white">
-              {currentSubmission.profile_pic_url ? 'Uploaded' : 'Not provided'}
-            </p>
+            {currentSubmission.profile_pic_url ? (
+              <div className="space-y-2">
+                <p className="w-full px-4 py-3 rounded-lg border border-white/30 bg-white/10 text-white">
+                  Profile picture uploaded
+                </p>
+                <button
+                  onClick={() => handleDownload(currentSubmission.profile_pic_url, 'profile_picture.jpg')}
+                  className="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-3 rounded-lg hover:bg-gradient-to-r hover:from-purple-700 hover:to-purple-800 hover:shadow-lg hover:shadow-purple-500/50 focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 transition-all duration-300"
+                >
+                  Download Profile Picture
+                </button>
+              </div>
+            ) : (
+              <p className="w-full px-4 py-3 rounded-lg border border-white/30 bg-white/10 text-white">
+                No profile picture provided
+              </p>
+            )}
           </div>
           <div>
             <label className="block text-white font-medium">Source Code</label>

@@ -4,12 +4,13 @@ import React, { useState, useEffect } from "react";
 import { useAuth } from "../AuthContext";
 import { useRouter } from "next/navigation";
 import { supabase } from "../supabaseClient"; // Adjust path as needed
+import imageCompression from 'browser-image-compression';
 
 export default function SubmitPage() {
   const { userRole } = useAuth();
   const router = useRouter();
 
-  // Move all state declarations to the top level
+  // State declarations
   const [fullName, setFullName] = useState("");
   const [phone, setPhone] = useState("");
   const [location, setLocation] = useState("");
@@ -19,6 +20,11 @@ export default function SubmitPage() {
   const [sourceCode, setSourceCode] = useState<File | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [submitStatus, setSubmitStatus] = useState<string | null>(null);
+  const [isProcessingImage, setIsProcessingImage] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{
+    'profile-pictures'?: number;
+    'source-code'?: number;
+  }>({});
 
   // Redirect non-developers to login
   useEffect(() => {
@@ -41,26 +47,104 @@ export default function SubmitPage() {
     return null;
   }
 
-  const uploadFile = async (file: File, bucket: string): Promise<string> => {
+  const compressImage = async (file: File): Promise<File> => {
+    setIsProcessingImage(true);
+    console.log('Original file size:', file.size / 1024 / 1024, 'MB');
+    
+    try {
+      const options = {
+        maxSizeMB: 1,
+        maxWidthOrHeight: 1080,
+        useWebWorker: true,
+        fileType: file.type
+      };
+
+      const compressedFile = await imageCompression(file, options);
+      console.log('Compressed file size:', compressedFile.size / 1024 / 1024, 'MB');
+      return compressedFile;
+    } catch (error) {
+      console.error('Error compressing image:', error);
+      throw new Error('Failed to compress image');
+    } finally {
+      setIsProcessingImage(false);
+    }
+  };
+
+  const handleProfilePicChange = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) {
+      setProfilePic(null);
+      return;
+    }
+
+    try {
+      setSubmitStatus("Processing image...");
+      // Validate file type
+      if (!file.type.startsWith('image/')) {
+        throw new Error('Please select an image file');
+      }
+
+      // Validate file size (show warning if over 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        setSubmitStatus("Large image detected, compressing...");
+      }
+
+      const compressedFile = await compressImage(file);
+      setProfilePic(compressedFile);
+      setSubmitStatus(`Image processed: ${(compressedFile.size / 1024 / 1024).toFixed(2)}MB`);
+    } catch (err: unknown) {
+      const error = err as Error;
+      console.error('Error processing image:', error);
+      setSubmitStatus(`Error: ${error.message || 'Failed to process image'}`);
+      setProfilePic(null);
+      // Reset the file input
+      if (e.target) {
+        e.target.value = '';
+      }
+    }
+  };
+
+  const uploadFile = async (file: File, bucket: 'profile-pictures' | 'source-code'): Promise<string> => {
     const fileExt = file.name.split('.').pop() || '';
     const fileName = `${Math.random()}.${fileExt}`;
     const filePath = `${fileName}`;
 
-    const { error } = await supabase.storage
-      .from(bucket)
-      .upload(filePath, file);
+    // Simulate upload progress
+    const progressInterval = setInterval(() => {
+      setUploadProgress(prev => ({
+        ...prev,
+        [bucket]: Math.min((prev[bucket] || 0) + 10, 90)
+      }));
+    }, 500);
 
-    if (error) throw error;
-    return filePath;
+    try {
+      const { error } = await supabase.storage
+        .from(bucket)
+        .upload(filePath, file);
+
+      if (error) throw error;
+      
+      // Set progress to 100% on success
+      setUploadProgress(prev => ({
+        ...prev,
+        [bucket]: 100
+      }));
+      
+      return filePath;
+    } finally {
+      clearInterval(progressInterval);
+    }
   };
 
   const handleSubmit = async (e: React.FormEvent<HTMLFormElement>) => {
     e.preventDefault();
     setIsSubmitting(true);
-    setSubmitStatus(null);
+    setSubmitStatus("Starting submission...");
+    setUploadProgress({});
 
     try {
       // First, test the database connection
+      setSubmitStatus("Verifying connection...");
       const { error: testError } = await supabase
         .from('submissions')
         .select('count')
@@ -71,14 +155,16 @@ export default function SubmitPage() {
         throw new Error(`Database connection failed: ${testError.message}`);
       }
 
-      let profilePicUrl = null;
-      let sourceCodeUrl = null;
+      let uploadedProfilePicUrl: string | null = null;
+      let uploadedSourceCodeUrl: string | null = null;
 
       // Upload profile picture if provided
       if (profilePic) {
         try {
-          profilePicUrl = await uploadFile(profilePic, 'profile-pictures');
-        } catch (error: any) {
+          setSubmitStatus("Uploading profile picture...");
+          uploadedProfilePicUrl = await uploadFile(profilePic, 'profile-pictures');
+        } catch (err: unknown) {
+          const error = err as Error;
           console.error('Error uploading profile picture:', error);
           throw new Error(`Profile picture upload failed: ${error.message || 'Unknown error'}`);
         }
@@ -87,14 +173,17 @@ export default function SubmitPage() {
       // Upload source code if provided
       if (sourceCode) {
         try {
-          sourceCodeUrl = await uploadFile(sourceCode, 'source-code');
-        } catch (error: any) {
+          setSubmitStatus("Uploading source code...");
+          uploadedSourceCodeUrl = await uploadFile(sourceCode, 'source-code');
+        } catch (err: unknown) {
+          const error = err as Error;
           console.error('Error uploading source code:', error);
           throw new Error(`Source code upload failed: ${error.message || 'Unknown error'}`);
         }
       }
 
       // Insert submission into database
+      setSubmitStatus("Saving submission...");
       const { data, error } = await supabase
         .from('submissions')
         .insert([
@@ -104,8 +193,8 @@ export default function SubmitPage() {
             location: location,
             email: email,
             hobbies: hobbies,
-            profile_pic_url: profilePicUrl,
-            source_code_url: sourceCodeUrl,
+            profile_pic_url: uploadedProfilePicUrl,
+            source_code_url: uploadedSourceCodeUrl,
             status: 'pending',
             created_at: new Date().toISOString()
           }
@@ -128,14 +217,18 @@ export default function SubmitPage() {
 
       setSubmitStatus('Submission successful! Your application has been received.');
       
-      // Reset form
-      setFullName("");
-      setPhone("");
-      setLocation("");
-      setEmail("");
-      setHobbies("");
-      setProfilePic(null);
-      setSourceCode(null);
+      // Reset form after a delay
+      setTimeout(() => {
+        setFullName("");
+        setPhone("");
+        setLocation("");
+        setEmail("");
+        setHobbies("");
+        setProfilePic(null);
+        setSourceCode(null);
+        setUploadProgress({});
+        setIsSubmitting(false);
+      }, 2000);
 
     } catch (error: any) {
       console.error('Full error object:', error);
@@ -148,7 +241,6 @@ export default function SubmitPage() {
       } else {
         setSubmitStatus('Error submitting application. Please try again. If the problem persists, contact support.');
       }
-    } finally {
       setIsSubmitting(false);
     }
   };
@@ -178,13 +270,48 @@ export default function SubmitPage() {
           Developer Submission Form
         </h2>
 
+        {/* Status Messages */}
         {submitStatus && (
           <div className={`p-4 rounded-lg text-center ${
             submitStatus.includes('Error') 
               ? 'bg-red-900/50 border border-red-500/30 text-red-100' 
               : 'bg-purple-900/50 border border-purple-500/30 text-purple-100'
-          }`}>
+          } animate-fade-in`}>
             {submitStatus}
+          </div>
+        )}
+
+        {/* Upload Progress Bars */}
+        {(uploadProgress['profile-pictures'] || uploadProgress['source-code']) && (
+          <div className="space-y-2">
+            {uploadProgress['profile-pictures'] !== undefined && (
+              <div>
+                <div className="flex justify-between text-sm text-white/70 mb-1">
+                  <span>Profile Picture</span>
+                  <span>{uploadProgress['profile-pictures']}%</span>
+                </div>
+                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-purple-500 transition-all duration-300"
+                    style={{ width: `${uploadProgress['profile-pictures']}%` }}
+                  />
+                </div>
+              </div>
+            )}
+            {uploadProgress['source-code'] !== undefined && (
+              <div>
+                <div className="flex justify-between text-sm text-white/70 mb-1">
+                  <span>Source Code</span>
+                  <span>{uploadProgress['source-code']}%</span>
+                </div>
+                <div className="h-2 bg-white/10 rounded-full overflow-hidden">
+                  <div 
+                    className="h-full bg-purple-500 transition-all duration-300"
+                    style={{ width: `${uploadProgress['source-code']}%` }}
+                  />
+                </div>
+              </div>
+            )}
           </div>
         )}
 
@@ -194,7 +321,7 @@ export default function SubmitPage() {
           value={fullName}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setFullName(e.target.value)}
           required
-          disabled={isSubmitting}
+          disabled={isSubmitting || isProcessingImage}
           className="w-full px-4 py-3 rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/70 focus:ring-2 focus:ring-purple-400 focus:border-transparent outline-none transition-all duration-300 hover:bg-white/20 disabled:opacity-50"
         />
 
@@ -204,7 +331,7 @@ export default function SubmitPage() {
           value={phone}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setPhone(e.target.value)}
           required
-          disabled={isSubmitting}
+          disabled={isSubmitting || isProcessingImage}
           className="w-full px-4 py-3 rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/70 focus:ring-2 focus:ring-purple-400 focus:border-transparent outline-none transition-all duration-300 hover:bg-white/20 disabled:opacity-50"
         />
 
@@ -214,7 +341,7 @@ export default function SubmitPage() {
           value={location}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setLocation(e.target.value)}
           required
-          disabled={isSubmitting}
+          disabled={isSubmitting || isProcessingImage}
           className="w-full px-4 py-3 rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/70 focus:ring-2 focus:ring-purple-400 focus:border-transparent outline-none transition-all duration-300 hover:bg-white/20 disabled:opacity-50"
         />
 
@@ -224,7 +351,7 @@ export default function SubmitPage() {
           value={email}
           onChange={(e: React.ChangeEvent<HTMLInputElement>) => setEmail(e.target.value)}
           required
-          disabled={isSubmitting}
+          disabled={isSubmitting || isProcessingImage}
           className="w-full px-4 py-3 rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/70 focus:ring-2 focus:ring-purple-400 focus:border-transparent outline-none transition-all duration-300 hover:bg-white/20 disabled:opacity-50"
         />
 
@@ -233,22 +360,32 @@ export default function SubmitPage() {
           value={hobbies}
           onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => setHobbies(e.target.value)}
           required
-          disabled={isSubmitting}
+          disabled={isSubmitting || isProcessingImage}
           className="w-full px-4 py-3 rounded-lg border border-white/30 bg-white/10 text-white placeholder-white/70 focus:ring-2 focus:ring-purple-400 focus:border-transparent outline-none transition-all duration-300 hover:bg-white/20 disabled:opacity-50"
           rows={4}
         />
 
         <label className="block text-white font-medium">
           Profile Picture (max 1MB, max 1080px)
-          <input
-            type="file"
-            accept="image/*"
-            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-              setProfilePic(e.target.files ? e.target.files[0] : null)
-            }
-            disabled={isSubmitting}
-            className="mt-1 text-white disabled:opacity-50"
-          />
+          <div className="relative">
+            <input
+              type="file"
+              accept="image/*"
+              onChange={handleProfilePicChange}
+              disabled={isSubmitting || isProcessingImage}
+              className="mt-1 text-white disabled:opacity-50 disabled:cursor-not-allowed"
+            />
+            {isProcessingImage && (
+              <div className="absolute right-0 top-1/2 -translate-y-1/2">
+                <div className="w-5 h-5 border-2 border-purple-500 border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            )}
+          </div>
+          {profilePic && (
+            <p className="mt-1 text-sm text-white/70">
+              Selected: {profilePic.name} ({(profilePic.size / 1024 / 1024).toFixed(2)}MB)
+            </p>
+          )}
         </label>
 
         <label className="block text-white font-medium">
@@ -259,17 +396,26 @@ export default function SubmitPage() {
             onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
               setSourceCode(e.target.files ? e.target.files[0] : null)
             }
-            disabled={isSubmitting}
+            disabled={isSubmitting || isProcessingImage}
             className="mt-1 text-white disabled:opacity-50"
           />
         </label>
 
         <button
           type="submit"
-          disabled={isSubmitting}
-          className="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-3 rounded-lg hover:bg-gradient-to-r hover:from-purple-700 hover:to-purple-800 hover:shadow-lg hover:shadow-purple-500/50 focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          disabled={isSubmitting || isProcessingImage}
+          className="w-full bg-gradient-to-r from-purple-600 to-purple-700 text-white py-3 rounded-lg hover:bg-gradient-to-r hover:from-purple-700 hover:to-purple-800 hover:shadow-lg hover:shadow-purple-500/50 focus:ring-2 focus:ring-purple-400 focus:ring-offset-2 transition-all duration-300 disabled:opacity-50 disabled:cursor-not-allowed relative"
         >
-          {isSubmitting ? 'Submitting...' : 'Submit'}
+          {isSubmitting ? (
+            <>
+              <span className="opacity-0">Submit</span>
+              <div className="absolute inset-0 flex items-center justify-center">
+                <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
+              </div>
+            </>
+          ) : (
+            'Submit'
+          )}
         </button>
       </form>
     </main>
